@@ -81,6 +81,14 @@ let zombieBase = null;
 let hugeZombie = null;
 let isBossLevel = false;
 
+// Superpower state
+let meteorUses = 2;
+let laserUses = 2;
+let nukeUses = 1;
+let activePower = null; // 'meteor'|'laser'|'nuke' animation in progress
+let powerTimer = 0;
+let powerTargets = [];
+
 loadGame();
 
 // ═══════════════════════════════════════════════════════════════════
@@ -98,7 +106,7 @@ const GRID_Y = 120;
 // ═══════════════════════════════════════════════════════════════════
 function getTheme(lvl) {
   if (lvl === 'endless' || lvl > 40) return getTheme(40);
-  if (lvl === 42) return { terrain:'grass', base:'hospital', lives:15, startMoney:1000 };
+  if (lvl === 42) return { terrain:'interstellar', base:'earth', lives:15, startMoney:1000 };
   if (lvl <= 10)  return { terrain:'grass',    base:'hospital',  lives:3,  startMoney:500  };
   if (lvl <= 20)  return { terrain:'rocky',    base:'colosseum', lives:5,  startMoney:500  };
   if (lvl <= 30)  return { terrain:'sand',     base:'temple',    lives:7,  startMoney:1000 };
@@ -231,7 +239,7 @@ function createFortGuard() {
 const ZOMBIE_TYPES = {
   normal:   { name:'Zombie',          hp:150, dmg:20, speed:CELL_W*1,   attackRate:1000, skinCol:'#9bc47a', shirtCol:'#4a5a2a' },
   muscular: { name:'Muscular Zombie', hp:400, dmg:40, speed:CELL_W*0.5, attackRate:1000, skinCol:'#8fbc5a', shirtCol:'#5a3a1a' },
-  speed:    { name:'Speed Zombie',    hp:80,  dmg:10, speed:CELL_W/0.3, attackRate:800,  skinCol:'#a0d8d8', shirtCol:'#1a5a5a' },
+  speed:    { name:'Speed Zombie',    hp:80,  dmg:10, speed:CELL_W*2,   attackRate:800,  skinCol:'#a0d8d8', shirtCol:'#1a5a5a' },
 };
 
 function randomZombieType(level) {
@@ -254,6 +262,8 @@ function spawnZombie(row, type) {
     skinCol:t.skinCol, shirtCol:t.shirtCol,
     dead:false,
     walkPhase:Math.random()*Math.PI*2,
+    hasStick: (type==='muscular' && Math.random()<0.25),
+    isAlien: isBossLevel,
   };
 }
 
@@ -266,7 +276,7 @@ function waveSizeForLevel(lvl) {
 //  BLOOD PARTICLES & STAINS (bezier blobs)
 // ═══════════════════════════════════════════════════════════════════
 function spawnBlood(x, y) {
-  const count = 12 + Math.floor(Math.random()*7);
+  const count = 6 + Math.floor(Math.random()*4);
   for (let i=0; i<count; i++) {
     const angle = Math.random()*Math.PI*2;
     const speed = 1.5 + Math.random()*5;
@@ -294,7 +304,7 @@ function spawnBlood(x, y) {
 }
 
 function addParticle(x,y,color) {
-  for(let i=0;i<5;i++) particles.push({
+  for(let i=0;i<3;i++) particles.push({
     x, y,
     vx:(Math.random()-0.5)*4,
     vy:(Math.random()-0.5)*4,
@@ -333,6 +343,8 @@ function startLevel() {
   spawnInterval = endlessMode ? 1500 : isBossLevel ? 2000 : Math.max(800, 2500-(selectedLevel)*50);
   fortGuard = createFortGuard();
   shakeTimer = 0; shakeX = 0; shakeY = 0;
+  meteorUses = 2; laserUses = 2; nukeUses = 1;
+  activePower = null; powerTimer = 0; powerTargets = [];
 
   zombieBase = null; hugeZombie = null;
   countdownPhase = 0; countdownStart = 0;
@@ -340,12 +352,13 @@ function startLevel() {
     countdownPhase = 1;
     countdownStart = performance.now();
     zombieBase = {
-      hp: 1000, maxHp: 1000,
+      hp: 3000, maxHp: 3000,
       x: canvas.width - 60,
       y: canvas.height/2,
       alive: true,
       lastSpawn: 0,
       spawnRate: 2000,
+      invulnTimer: 30000, // can't be attacked for first 30 seconds
     };
   }
   scene='game';
@@ -513,6 +526,7 @@ function drawTerrainSandVolcanic(theme) {
 
 function drawTerrainFull(theme) {
   if (theme==='sand'||theme==='volcanic') drawTerrainSandVolcanic(theme);
+  else if (theme==='interstellar') drawTerrainInterstellar();
   else drawTerrain(theme);
   // Grid lines over terrain
   ctx.strokeStyle='rgba(0,0,0,0.2)'; ctx.lineWidth=1;
@@ -522,6 +536,37 @@ function drawTerrainFull(theme) {
   for(let c=0;c<=COLS;c++){
     ctx.beginPath(); ctx.moveTo(GRID_X+c*CELL_W,GRID_Y); ctx.lineTo(GRID_X+c*CELL_W,GRID_Y+ROWS*CELL_H); ctx.stroke();
   }
+}
+
+function drawTerrainInterstellar() {
+  const gx=GRID_X, gy=GRID_Y, gw=COLS*CELL_W, gh=ROWS*CELL_H;
+  // Deep space background
+  ctx.fillStyle='#050510'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Stars
+  const rng=seededRand(99);
+  for(let i=0;i<120;i++){
+    const sx=rng()*canvas.width, sy=rng()*canvas.height;
+    const brightness=0.3+rng()*0.7;
+    ctx.fillStyle=`rgba(255,255,255,${brightness})`;
+    ctx.beginPath(); ctx.arc(sx,sy,0.5+rng()*1.5,0,Math.PI*2); ctx.fill();
+  }
+  // Nebula glow
+  const neb=ctx.createRadialGradient(gx+gw/2,gy+gh/2,50,gx+gw/2,gy+gh/2,400);
+  neb.addColorStop(0,'rgba(80,0,120,0.2)'); neb.addColorStop(0.5,'rgba(0,40,100,0.15)'); neb.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=neb; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Grid cells — dark space panels
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    const cx2=gx+c*CELL_W, cy2=gy+r*CELL_H;
+    ctx.fillStyle=`rgba(10,10,30,${0.6+rng()*0.3})`;
+    ctx.fillRect(cx2,cy2,CELL_W,CELL_H);
+  }
+  // Distant planets
+  const p1g=ctx.createRadialGradient(gx+gw*0.8,gy-30,5,gx+gw*0.8,gy-30,35);
+  p1g.addColorStop(0,'#ff6644'); p1g.addColorStop(1,'rgba(100,20,0,0)');
+  ctx.fillStyle=p1g; ctx.beginPath(); ctx.arc(gx+gw*0.8,gy-30,35,0,Math.PI*2); ctx.fill();
+  const p2g=ctx.createRadialGradient(gx+gw*0.2,gy+gh+20,3,gx+gw*0.2,gy+gh+20,20);
+  p2g.addColorStop(0,'#4488ff'); p2g.addColorStop(1,'rgba(0,40,100,0)');
+  ctx.fillStyle=p2g; ctx.beginPath(); ctx.arc(gx+gw*0.2,gy+gh+20,20,0,Math.PI*2); ctx.fill();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -624,6 +669,37 @@ function drawFortress(baseType) {
       const ratio=fortGuard.hp/fortGuard.maxHp;
       ctx.fillStyle='#333'; ctx.fillRect(hx+4,hy+hh-8,hw-8,6);
       ctx.fillStyle='#cc44ff'; ctx.fillRect(hx+4,hy+hh-8,(hw-8)*ratio,6);
+    }
+  }
+
+  // Earth (boss level base)
+  else if (baseType==='earth') {
+    // Space background for base area
+    ctx.fillStyle='#050510'; ctx.fillRect(hx,hy,hw,hh);
+    // Earth sphere
+    const ecx=hx+hw/2, ecy=hy+hh/2, er=Math.min(hw,hh)*0.38;
+    const earthGrad=ctx.createRadialGradient(ecx-er*0.3,ecy-er*0.3,er*0.1,ecx,ecy,er);
+    earthGrad.addColorStop(0,'#4488ff'); earthGrad.addColorStop(0.4,'#2266cc'); earthGrad.addColorStop(0.7,'#115599'); earthGrad.addColorStop(1,'#0a2244');
+    ctx.fillStyle=earthGrad; ctx.beginPath(); ctx.arc(ecx,ecy,er,0,Math.PI*2); ctx.fill();
+    // Continents (green blobs)
+    ctx.fillStyle='rgba(40,140,40,0.7)';
+    ctx.beginPath(); ctx.ellipse(ecx-er*0.2,ecy-er*0.2,er*0.3,er*0.2,0.3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(ecx+er*0.2,ecy+er*0.1,er*0.25,er*0.15,-0.2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(ecx-er*0.1,ecy+er*0.35,er*0.15,er*0.1,0.5,0,Math.PI*2); ctx.fill();
+    // Clouds
+    ctx.fillStyle='rgba(255,255,255,0.3)';
+    ctx.beginPath(); ctx.ellipse(ecx+er*0.1,ecy-er*0.3,er*0.25,er*0.08,0.2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(ecx-er*0.3,ecy+er*0.2,er*0.2,er*0.06,-0.3,0,Math.PI*2); ctx.fill();
+    // Atmosphere glow
+    ctx.strokeStyle='rgba(100,180,255,0.4)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(ecx,ecy,er+2,0,Math.PI*2); ctx.stroke();
+    // Label
+    ctx.fillStyle='#88ccff'; ctx.font='bold 10px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('EARTH',ecx,hy+hh-10);
+    if(fortGuard&&fortGuard.alive){
+      const ratio=fortGuard.hp/fortGuard.maxHp;
+      ctx.fillStyle='#333'; ctx.fillRect(hx+4,hy+hh-8,hw-8,6);
+      ctx.fillStyle='#4488ff'; ctx.fillRect(hx+4,hy+hh-8,(hw-8)*ratio,6);
     }
   }
 }
@@ -924,7 +1000,7 @@ function drawZombie(z) {
   const s=z.type==='muscular'?38:z.type==='speed'?20:28;
   const phase=z.walkPhase;
   const legSwing=Math.sin(phase)*s*0.25;
-  const skinCol=z.skinCol, shirtCol=z.shirtCol;
+  const skinCol=z.isAlien?'#8844cc':z.skinCol, shirtCol=z.isAlien?'#2a0a4a':z.shirtCol;
 
   // Speed zombie: motion blur lines
   if(z.type==='speed'){
@@ -988,6 +1064,19 @@ function drawZombie(z) {
     ctx.beginPath(); ctx.moveTo(cx,cy-s*0.05); ctx.lineTo(cx,cy+s*0.3); ctx.stroke();
     // Angry brow
     ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.lineWidth=s*0.06;
+    // Wooden stick (25% of muscular)
+    if(z.hasStick){
+      ctx.save();
+      ctx.translate(cx+s*0.55,cy-s*0.15);
+      ctx.rotate(-0.5);
+      ctx.fillStyle='#8B6914';
+      ctx.fillRect(-s*0.04,-s*0.6,s*0.08,s*0.7);
+      // Knots on stick
+      ctx.fillStyle='#6b4a10';
+      ctx.beginPath(); ctx.arc(0,-s*0.3,s*0.05,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(s*0.02,-s*0.5,s*0.04,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
   }
 
   // Arms (outstretched zombie pose)
@@ -1051,6 +1140,22 @@ function drawZombie(z) {
   // Black tongue
   ctx.fillStyle='#1a0a0a';
   ctx.beginPath(); ctx.ellipse(cx+s*0.02,cy-s*0.1+headBob,s*0.04,s*0.06,0.2,0,Math.PI*2); ctx.fill();
+
+  // Alien zombie extras
+  if(z.isAlien){
+    // Antennae
+    ctx.strokeStyle='#cc44ff'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(cx-s*0.08,cy-s*0.52+headBob); ctx.quadraticCurveTo(cx-s*0.15,cy-s*0.7+headBob,cx-s*0.12,cy-s*0.72+headBob); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+s*0.08,cy-s*0.52+headBob); ctx.quadraticCurveTo(cx+s*0.15,cy-s*0.7+headBob,cx+s*0.12,cy-s*0.72+headBob); ctx.stroke();
+    // Antenna tips glow
+    ctx.fillStyle='#ff00ff'; ctx.shadowColor='#ff00ff'; ctx.shadowBlur=6;
+    ctx.beginPath(); ctx.arc(cx-s*0.12,cy-s*0.72+headBob,s*0.04,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx+s*0.12,cy-s*0.72+headBob,s*0.04,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0;
+    // Third eye
+    ctx.fillStyle='#ff00ff';
+    ctx.beginPath(); ctx.arc(cx,cy-s*0.42+headBob,s*0.04,0,Math.PI*2); ctx.fill();
+  }
 
   // HP bar
   const bw=s*2.2, bh=5, bx=cx-bw/2, by=cy-s-14;
@@ -1278,21 +1383,29 @@ function drawHUD() {
   ctx.fillStyle='#ffd700'; ctx.fillText(`💰 $${money}`,20,GRID_Y/2);
   // Hearts
   let heartsStr='';
-  for(let i=0;i<lives;i++) heartsStr+='❤️';
+  for(let i=0;i<lives;i++) heartsStr+='\u2764\uFE0F';
   ctx.fillStyle='#ff4444'; ctx.fillText(heartsStr,200,GRID_Y/2);
-  const lvlLabel=selectedLevel==='endless'?'ENDLESS':selectedLevel===42?'💀 BOSS':`Level ${selectedLevel}`;
+  const lvlLabel=selectedLevel==='endless'?'ENDLESS':selectedLevel===42?'\uD83D\uDC80 BOSS':`Level ${selectedLevel}`;
   ctx.fillStyle='#aaa'; ctx.fillText(lvlLabel,200+lives*28,GRID_Y/2);
   if(endlessMode){
     ctx.fillStyle='#ffd700'; ctx.fillText(`Kills: ${endlessKills}`,520,GRID_Y/2);
   } else {
-    const remaining=zombies.filter(z=>!z.dead).length+(zombiesThisWave-waveSpawned);
-    ctx.fillStyle='#4caf50'; ctx.fillText(`🧟 ${Math.max(0,remaining)} left`,520,GRID_Y/2);
+    const remaining=zombies.filter(z=>!z.dead).length+(zombiesThisWave===Infinity?999:(zombiesThisWave-waveSpawned));
+    ctx.fillStyle='#4caf50'; ctx.fillText(`\uD83E\uDDDF ${Math.max(0,remaining)} left`,520,GRID_Y/2);
   }
-  btn(canvas.width-160,10,140,40,'← Menu','#555','#fff',16);
+  btn(canvas.width-160,10,140,40,'\u2190 Menu','#555','#fff',16);
   // Save button with flash
   const saveBg=saveFlash>0?'#52b788':'#2d6a4f';
-  const saveLabel=saveFlash>0?'✓ Saved!':'💾 Save';
+  const saveLabel=saveFlash>0?'\u2713 Saved!':'\uD83D\uDCBE Save';
   btn(20,canvas.height-55,120,40,saveLabel,saveBg,'#fff',16);
+
+  // Superpower buttons
+  const pwY=GRID_Y/2-18;
+  const pwX=canvas.width-480;
+  const pwW=90, pwH=36, pwGap=8;
+  btn(pwX,pwY,pwW,pwH,'\u2604\uFE0F '+meteorUses,meteorUses>0?'#ff8800':'#444','#fff',13);
+  btn(pwX+pwW+pwGap,pwY,pwW,pwH,'\u26A1 '+laserUses,laserUses>0?'#00ccff':'#444','#fff',13);
+  btn(pwX+2*(pwW+pwGap),pwY,pwW,pwH,'\u2622\uFE0F '+nukeUses,nukeUses>0?'#ff0044':'#444','#fff',13);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1445,6 +1558,13 @@ function drawGameOverScreen() {
   ctx.shadowBlur=0;
   ctx.fillStyle='#0a0000';
   ctx.beginPath(); ctx.arc(zx,zy-s*0.18,s*0.12,0,Math.PI); ctx.fill();
+  // Blood dripping from mouth
+  ctx.fillStyle='#cc0000';
+  ctx.beginPath(); ctx.ellipse(zx-s*0.04,zy-s*0.08,s*0.04,s*0.08,0.1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(zx+s*0.06,zy-s*0.06,s*0.03,s*0.1,-0.1,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#8b0000'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(zx-s*0.02,zy-s*0.06); ctx.lineTo(zx-s*0.04,zy+s*0.06); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(zx+s*0.04,zy-s*0.04); ctx.lineTo(zx+s*0.06,zy+s*0.08); ctx.stroke();
   ctx.restore();
 
   // Blood splatter overlay
@@ -1510,11 +1630,11 @@ function drawGame(ts) {
   ctx.save();
   // Screen shake
   if(shakeTimer>0){
-    shakeX=(Math.random()-0.5)*10; shakeY=(Math.random()-0.5)*10;
+    shakeX=(Math.random()-0.5)*6; shakeY=(Math.random()-0.5)*6;
     ctx.translate(shakeX,shakeY);
   }
 
-  const lvl=selectedLevel==='endless'?1:selectedLevel===42?1:selectedLevel;
+  const lvl=selectedLevel==='endless'?1:selectedLevel===42?42:selectedLevel;
   const theme=getTheme(lvl);
   drawTerrainFull(theme.terrain);
 
@@ -1533,7 +1653,7 @@ function drawGame(ts) {
   for(const z of zombies){ if(!z.dead) drawZombie(z); }
 
   // Huge zombie
-  if(hugeZombie&&!hugeZombie.dead) drawHugeZombie(hugeZombie);
+  if(hugeZombie&&!hugeZombie.dead&&hugeZombie.x) drawHugeZombie(hugeZombie);
 
   // Zombie base
   if(isBossLevel&&zombieBase&&zombieBase.alive) drawZombieBase(zombieBase);
@@ -1609,7 +1729,15 @@ function update(ts) {
   if(shakeTimer>0) shakeTimer-=dt;
 
   // Boss countdown — pause game during countdown
-  if(isBossLevel&&countdownPhase===1) return;
+  if(isBossLevel&&countdownPhase===1){
+    const elapsed = ts - countdownStart;
+    if(elapsed >= 4000) {
+      countdownPhase = 2;
+      if(zombieBase) zombieBase.lastSpawn = ts;
+    }
+    lastTime=ts;
+    return;
+  }
 
   // Animate units (bob)
   for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
@@ -1641,7 +1769,8 @@ function update(ts) {
   }
 
   // ── Boss level: zombie base spawns ──
-  if(isBossLevel&&zombieBase&&zombieBase.alive){
+  if(isBossLevel&&countdownPhase===2&&zombieBase&&zombieBase.alive){
+    if(zombieBase.invulnTimer>0) zombieBase.invulnTimer-=dt;
     if(ts-zombieBase.lastSpawn>=zombieBase.spawnRate){
       const row=Math.floor(Math.random()*ROWS);
       zombies.push(spawnZombie(row,randomZombieType(42)));
@@ -1698,8 +1827,8 @@ function update(ts) {
     if(hugeZombie&&!hugeZombie.dead) targets.push(hugeZombie);
     if(targets.length>0&&ts-fortGuard.lastShot>=fortGuard.rate){
       const target=targets.reduce((a,b)=>a.x<b.x?a:b);
-      const tIdx=target===hugeZombie?-2:zombies.indexOf(target);
-      bullets.push({x:GRID_X/2,y:GRID_Y+ROWS*CELL_H/2,targetId:tIdx,dmg:fortGuard.dmg,speed:500,row:-1,isFortBullet:true});
+      const tIdx=target===hugeZombie?-2:target;
+      bullets.push({x:GRID_X/2,y:GRID_Y+ROWS*CELL_H/2,targetRef:tIdx,dmg:fortGuard.dmg,speed:500,row:-1,isFortBullet:true});
       fortGuard.lastShot=ts;
     }
   }
@@ -1711,20 +1840,20 @@ function update(ts) {
 
     // Can attack huge zombie from any row
     const canHitHuge=hugeZombie&&!hugeZombie.dead;
-    // Can attack zombie base if no zombies in row
-    const canHitBase=isBossLevel&&zombieBase&&zombieBase.alive&&rowZombies.length===0&&u.ranged;
+    // Can attack zombie base if no zombies in row AND invuln timer expired
+    const canHitBase=isBossLevel&&zombieBase&&zombieBase.alive&&zombieBase.invulnTimer<=0&&rowZombies.length===0&&u.ranged;
 
     if(u.ranged){
-      let target=null, targetId=-1;
-      if(canHitHuge){ target=hugeZombie; targetId=-2; }
-      else if(rowZombies.length>0){ target=rowZombies.reduce((a,b)=>a.x<b.x?a:b); targetId=zombies.indexOf(target); }
-      else if(canHitBase){ target={x:zombieBase.x,y:GRID_Y+r*CELL_H+CELL_H/2}; targetId=-3; }
+      let target=null, targetRef=null;
+      if(canHitHuge){ target=hugeZombie; targetRef=-2; }
+      else if(rowZombies.length>0){ target=rowZombies.reduce((a,b)=>a.x<b.x?a:b); targetRef=target; }
+      else if(canHitBase){ target={x:zombieBase.x,y:GRID_Y+r*CELL_H+CELL_H/2}; targetRef=-3; }
 
       if(target&&ts-u.lastShot>=u.rate){
         for(let s2=0;s2<u.shotsPerFire;s2++){
           bullets.push({
             x:GRID_X+c*CELL_W+CELL_W/2, y:GRID_Y+r*CELL_H+CELL_H/2,
-            targetId, dmg:u.dmg, speed:600, row:r, isFortBullet:false,
+            targetRef, dmg:u.dmg, speed:600, row:r, isFortBullet:false,
           });
         }
         u.lastShot=ts;
@@ -1743,7 +1872,7 @@ function update(ts) {
         target.hp-=u.dmg;
         addParticle(target.x||target.x,target.y||GRID_Y+r*CELL_H+CELL_H/2,'#fff');
         if(target.hp<=0){
-          if(target===hugeZombie){ target.dead=true; shakeTimer=500; gameWon=true; spawnBlood(target.x,target.y); }
+          if(target===hugeZombie){ target.dead=true; shakeTimer=500; spawnBlood(target.x,target.y); }
           else { target.dead=true; money+=20; endlessKills++; playZombieMoan(); spawnBlood(target.x,target.y); }
         }
         u.lastShot=ts;
@@ -1753,21 +1882,21 @@ function update(ts) {
 
   // ── Move bullets ──
   for(const b of bullets){
-    if(b.targetId===-2){
+    if(b.targetRef===-2){
       // Targeting huge zombie
       if(!hugeZombie||hugeZombie.dead){b.done=true;continue;}
       const dx=hugeZombie.x-b.x, dy=hugeZombie.y-b.y;
       const dist=Math.sqrt(dx*dx+dy*dy);
       if(dist<20){
         hugeZombie.hp-=b.dmg; addParticle(hugeZombie.x,hugeZombie.y,'#ffe066');
-        if(hugeZombie.hp<=0){hugeZombie.dead=true;shakeTimer=500;gameWon=true;spawnBlood(hugeZombie.x,hugeZombie.y);}
+        if(hugeZombie.hp<=0){hugeZombie.dead=true;shakeTimer=500;spawnBlood(hugeZombie.x,hugeZombie.y);}
         b.done=true;
       } else {
         const spd=b.speed*(dt/1000);
         if(!b.isFortBullet){b.y=GRID_Y+b.row*CELL_H+CELL_H/2; b.x+=Math.sign(dx)*spd;}
         else {b.x+=dx/dist*spd; b.y+=dy/dist*spd;}
       }
-    } else if(b.targetId===-3){
+    } else if(b.targetRef===-3){
       // Targeting zombie base
       if(!zombieBase||!zombieBase.alive){b.done=true;continue;}
       const dx=zombieBase.x-b.x;
@@ -1777,14 +1906,13 @@ function update(ts) {
         if(zombieBase.hp<=0){
           zombieBase.alive=false;
           shakeTimer=300;
-          // Spawn huge zombie
-          hugeZombie={x:canvas.width+60,y:GRID_Y+2*CELL_H+CELL_H/2,hp:500,maxHp:500,speed:CELL_W/3,dmg:100,dead:false,walkPhase:0};
+          hugeZombie={x:canvas.width+60,y:GRID_Y+2*CELL_H+CELL_H/2,hp:2000,maxHp:2000,speed:CELL_W/3,dmg:100,dead:false,walkPhase:0};
         }
         b.done=true;
       } else { b.x+=Math.sign(dx)*b.speed*(dt/1000); }
     } else {
-      // Normal zombie target
-      const target=zombies[b.targetId];
+      // Normal zombie target (direct reference)
+      const target=b.targetRef;
       if(!target||target.dead){b.done=true;continue;}
       if(!b.isFortBullet){
         b.y=GRID_Y+b.row*CELL_H+CELL_H/2;
@@ -1815,11 +1943,21 @@ function update(ts) {
 
   // ── Cleanup ──
   bullets=bullets.filter(b=>!b.done);
-  zombies=zombies.filter(z=>!z.dead||z.hp>0);
+  zombies=zombies.filter(z=>!z.dead);
   particles=particles.filter(p=>p.life>0);
+  // Cap arrays to prevent memory/performance issues
+  if(particles.length>200) particles=particles.slice(-200);
+  if(bloodStains.length>30) bloodStains=bloodStains.slice(-30);
+  if(bullets.length>150) bullets=bullets.slice(-150);
+  if(zombies.length>60) {
+    // Remove zombies that have gone off-screen left (shouldn't happen but safety)
+    zombies=zombies.filter(z=>z.x>-100);
+  }
 
   // ── Win condition (non-boss, non-endless) ──
-  if(!endlessMode&&!isBossLevel&&allZombiesSpawned&&zombies.filter(z=>!z.dead).length===0) gameWon=true;
+  if(!endlessMode&&!isBossLevel&&allZombiesSpawned&&zombies.length===0) gameWon=true;
+  // Boss level: only win when huge zombie is dead (and it exists)
+  if(isBossLevel&&hugeZombie&&hugeZombie.dead&&hugeZombie.hp<=0) gameWon=true;
 }
 
 
@@ -1879,6 +2017,14 @@ canvas.addEventListener('mousedown',e=>{
     }
 
     if(!gameOver&&!gameWon){
+      // Superpower buttons
+      const pwY=GRID_Y/2-18;
+      const pwX=canvas.width-480;
+      const pwW=90, pwH=36, pwGap=8;
+      if(inRect(mx,my,pwX,pwY,pwW,pwH)&&meteorUses>0){ useMeteor(); return; }
+      if(inRect(mx,my,pwX+pwW+pwGap,pwY,pwW,pwH)&&laserUses>0){ useLaser(); return; }
+      if(inRect(mx,my,pwX+2*(pwW+pwGap),pwY,pwW,pwH)&&nukeUses>0){ useNuke(); return; }
+
       const shopY=GRID_Y+ROWS*CELL_H+10;
       const itemW=138,itemH=canvas.height-shopY-28,pad=8;
       UNIT_KEYS.forEach((key,i)=>{
@@ -1904,6 +2050,68 @@ canvas.addEventListener('mouseup',e=>{
   }
   dragging=null;
 });
+
+// ═══════════════════════════════════════════════════════════════════
+//  SUPERPOWER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════
+function useMeteor() {
+  meteorUses--;
+  const liveZ=zombies.filter(z=>!z.dead);
+  const count=Math.floor(liveZ.length/2); // half, rounded down
+  // Shuffle and pick half
+  const shuffled=[...liveZ].sort(()=>Math.random()-0.5);
+  const targets=shuffled.slice(0,count);
+  for(const z of targets){
+    z.hp-=100;
+    addParticle(z.x,z.y-30,'#ff8800');
+    addParticle(z.x,z.y,'#ff4400');
+    if(z.hp<=0){z.dead=true;money+=20;endlessKills++;playZombieMoan();spawnBlood(z.x,z.y);}
+  }
+  shakeTimer=400;
+  // Visual: draw meteor streaks (via particles)
+  for(let i=0;i<20;i++){
+    const mx2=GRID_X+Math.random()*COLS*CELL_W;
+    const my2=GRID_Y-50;
+    particles.push({x:mx2,y:my2,vx:2+Math.random()*3,vy:8+Math.random()*6,life:1,color:'#ff6600',size:6+Math.random()*8,rot:0,rotSpeed:0,isBlood:false});
+  }
+}
+
+function useLaser() {
+  laserUses--;
+  // Hit every other row (rows 0, 2, 4)
+  for(let r=0;r<ROWS;r+=2){
+    const rowZ=zombies.filter(z=>!z.dead&&z.row===r);
+    for(const z of rowZ){
+      z.hp-=50;
+      addParticle(z.x,z.y,'#00ccff');
+      if(z.hp<=0){z.dead=true;money+=20;endlessKills++;playZombieMoan();spawnBlood(z.x,z.y);}
+    }
+    // Laser beam visual
+    particles.push({x:GRID_X,y:GRID_Y+r*CELL_H+CELL_H/2,vx:30,vy:0,life:1,color:'#00ffff',size:3,rot:0,rotSpeed:0,isBlood:false});
+  }
+  shakeTimer=200;
+}
+
+function useNuke() {
+  nukeUses--;
+  const liveZ=zombies.filter(z=>!z.dead);
+  for(const z of liveZ){
+    z.hp-=200;
+    if(z.hp<=0){z.dead=true;money+=20;endlessKills++;playZombieMoan();spawnBlood(z.x,z.y);}
+  }
+  // Also hit huge zombie if present
+  if(hugeZombie&&!hugeZombie.dead){
+    hugeZombie.hp-=200;
+    if(hugeZombie.hp<=0){hugeZombie.dead=true;shakeTimer=500;spawnBlood(hugeZombie.x,hugeZombie.y);}
+  }
+  shakeTimer=600;
+  // Nuke flash
+  for(let i=0;i<40;i++){
+    const nx=GRID_X+Math.random()*COLS*CELL_W;
+    const ny=GRID_Y+Math.random()*ROWS*CELL_H;
+    particles.push({x:nx,y:ny,vx:(Math.random()-0.5)*8,vy:(Math.random()-0.5)*8,life:1,color:Math.random()<0.5?'#ffffff':'#ffff00',size:8+Math.random()*12,rot:0,rotSpeed:0,isBlood:false});
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN LOOP
