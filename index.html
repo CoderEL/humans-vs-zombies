@@ -329,7 +329,7 @@ function startLevel() {
   lives = endlessMode ? 3 : theme.lives;
 
   if (endlessMode) {
-    money = 500;
+    money = 1000;
   } else {
     const lvl = selectedLevel;
     money = (lvl>=20||lvl===42) ? 1000 : theme.startMoney;
