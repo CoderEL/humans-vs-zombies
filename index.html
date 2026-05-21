@@ -56,6 +56,7 @@ function loadGame() {
 // ═══════════════════════════════════════════════════════════════════
 let scene         = 'menu';
 let selectedLevel = null;
+let creditsY      = 0; // for scrolling credits
 let money         = 500;
 let lives         = 3;
 let gameOver      = false;
@@ -540,33 +541,56 @@ function drawTerrainFull(theme) {
 
 function drawTerrainInterstellar() {
   const gx=GRID_X, gy=GRID_Y, gw=COLS*CELL_W, gh=ROWS*CELL_H;
-  // Deep space background
-  ctx.fillStyle='#050510'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  // Stars
   const rng=seededRand(99);
-  for(let i=0;i<120;i++){
+  // Deep space gradient
+  const spaceGrad=ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+  spaceGrad.addColorStop(0,'#020010'); spaceGrad.addColorStop(0.3,'#0a0020'); spaceGrad.addColorStop(0.7,'#050018'); spaceGrad.addColorStop(1,'#000008');
+  ctx.fillStyle=spaceGrad; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Star field (varied sizes and colors)
+  for(let i=0;i<200;i++){
     const sx=rng()*canvas.width, sy=rng()*canvas.height;
-    const brightness=0.3+rng()*0.7;
-    ctx.fillStyle=`rgba(255,255,255,${brightness})`;
-    ctx.beginPath(); ctx.arc(sx,sy,0.5+rng()*1.5,0,Math.PI*2); ctx.fill();
+    const sz=rng()*2;
+    const colors=['#ffffff','#aaccff','#ffddaa','#ffaaaa','#aaffcc'];
+    ctx.fillStyle=colors[Math.floor(rng()*colors.length)];
+    ctx.globalAlpha=0.3+rng()*0.7;
+    ctx.beginPath(); ctx.arc(sx,sy,sz,0,Math.PI*2); ctx.fill();
   }
-  // Nebula glow
-  const neb=ctx.createRadialGradient(gx+gw/2,gy+gh/2,50,gx+gw/2,gy+gh/2,400);
-  neb.addColorStop(0,'rgba(80,0,120,0.2)'); neb.addColorStop(0.5,'rgba(0,40,100,0.15)'); neb.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=neb; ctx.fillRect(0,0,canvas.width,canvas.height);
-  // Grid cells — dark space panels
+  ctx.globalAlpha=1;
+  // Large nebula clouds
+  const neb1=ctx.createRadialGradient(gx+gw*0.3,gy+gh*0.4,20,gx+gw*0.3,gy+gh*0.4,250);
+  neb1.addColorStop(0,'rgba(100,0,180,0.15)'); neb1.addColorStop(0.5,'rgba(40,0,100,0.08)'); neb1.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=neb1; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const neb2=ctx.createRadialGradient(gx+gw*0.7,gy+gh*0.6,10,gx+gw*0.7,gy+gh*0.6,200);
+  neb2.addColorStop(0,'rgba(0,60,150,0.12)'); neb2.addColorStop(0.6,'rgba(0,20,80,0.06)'); neb2.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=neb2; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // Milky way band
+  ctx.strokeStyle='rgba(200,200,255,0.04)'; ctx.lineWidth=80;
+  ctx.beginPath(); ctx.moveTo(0,canvas.height*0.3); ctx.quadraticCurveTo(canvas.width*0.5,canvas.height*0.5,canvas.width,canvas.height*0.2); ctx.stroke();
+  // Grid cells — translucent dark panels
   for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
-    const cx2=gx+c*CELL_W, cy2=gy+r*CELL_H;
-    ctx.fillStyle=`rgba(10,10,30,${0.6+rng()*0.3})`;
-    ctx.fillRect(cx2,cy2,CELL_W,CELL_H);
+    ctx.fillStyle=`rgba(5,5,20,${0.4+rng()*0.2})`;
+    ctx.fillRect(gx+c*CELL_W,gy+r*CELL_H,CELL_W,CELL_H);
   }
-  // Distant planets
-  const p1g=ctx.createRadialGradient(gx+gw*0.8,gy-30,5,gx+gw*0.8,gy-30,35);
-  p1g.addColorStop(0,'#ff6644'); p1g.addColorStop(1,'rgba(100,20,0,0)');
-  ctx.fillStyle=p1g; ctx.beginPath(); ctx.arc(gx+gw*0.8,gy-30,35,0,Math.PI*2); ctx.fill();
-  const p2g=ctx.createRadialGradient(gx+gw*0.2,gy+gh+20,3,gx+gw*0.2,gy+gh+20,20);
-  p2g.addColorStop(0,'#4488ff'); p2g.addColorStop(1,'rgba(0,40,100,0)');
-  ctx.fillStyle=p2g; ctx.beginPath(); ctx.arc(gx+gw*0.2,gy+gh+20,20,0,Math.PI*2); ctx.fill();
+  // Distant planet with rings (Saturn-like)
+  const px=gx+gw*0.85, py=gy-25;
+  const pg=ctx.createRadialGradient(px-5,py-5,3,px,py,30);
+  pg.addColorStop(0,'#ffcc66'); pg.addColorStop(0.7,'#cc8833'); pg.addColorStop(1,'rgba(80,40,0,0)');
+  ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(px,py,28,0,Math.PI*2); ctx.fill();
+  // Rings
+  ctx.strokeStyle='rgba(200,180,140,0.4)'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.ellipse(px,py,45,12,0.2,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle='rgba(180,160,120,0.25)'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.ellipse(px,py,55,15,0.2,0,Math.PI*2); ctx.stroke();
+  // Blue planet
+  const bpx=gx+gw*0.15, bpy=gy+gh+15;
+  const bpg=ctx.createRadialGradient(bpx-3,bpy-3,2,bpx,bpy,18);
+  bpg.addColorStop(0,'#66aaff'); bpg.addColorStop(0.8,'#2244aa'); bpg.addColorStop(1,'rgba(0,20,60,0)');
+  ctx.fillStyle=bpg; ctx.beginPath(); ctx.arc(bpx,bpy,18,0,Math.PI*2); ctx.fill();
+  // Shooting star
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(gx+gw*0.6,gy-40); ctx.lineTo(gx+gw*0.55,gy-25); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(gx+gw*0.6,gy-40); ctx.lineTo(gx+gw*0.65,gy-50); ctx.stroke();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1079,26 +1103,26 @@ function drawZombie(z) {
     }
   }
 
-  // Arms (outstretched zombie pose)
-  const armSwing=Math.sin(phase+Math.PI)*s*0.1;
+  // Arms (outstretched zombie pose — back and forth motion)
+  const armSwing=Math.sin(phase+Math.PI)*s*0.12;
   ctx.strokeStyle=skinCol; ctx.lineWidth=s*0.13; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(cx-s*0.28,cy); ctx.lineTo(cx-s*0.55,cy-s*0.15+armSwing); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx+s*0.28,cy); ctx.lineTo(cx+s*0.55,cy-s*0.15-armSwing); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-s*0.28,cy); ctx.lineTo(cx-s*0.55+armSwing,cy-s*0.15); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+s*0.28,cy); ctx.lineTo(cx+s*0.55-armSwing,cy-s*0.15); ctx.stroke();
   // Bone on forearm
   ctx.strokeStyle='rgba(220,200,160,0.5)'; ctx.lineWidth=s*0.04;
-  ctx.beginPath(); ctx.moveTo(cx-s*0.4,cy-s*0.08+armSwing); ctx.lineTo(cx-s*0.52,cy-s*0.14+armSwing); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx+s*0.4,cy-s*0.08-armSwing); ctx.lineTo(cx+s*0.52,cy-s*0.14-armSwing); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-s*0.4+armSwing*0.5,cy-s*0.08); ctx.lineTo(cx-s*0.52+armSwing,cy-s*0.14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+s*0.4-armSwing*0.5,cy-s*0.08); ctx.lineTo(cx+s*0.52-armSwing,cy-s*0.14); ctx.stroke();
 
   // Clawed hands
   ctx.fillStyle=skinCol;
-  ctx.beginPath(); ctx.arc(cx-s*0.55,cy-s*0.18+armSwing,s*0.1,0,Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx+s*0.55,cy-s*0.18-armSwing,s*0.1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx-s*0.55+armSwing,cy-s*0.18,s*0.1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx+s*0.55-armSwing,cy-s*0.18,s*0.1,0,Math.PI*2); ctx.fill();
   ctx.strokeStyle='rgba(0,0,0,0.6)'; ctx.lineWidth=0.8;
   for(let f=-1;f<=1;f++){
-    ctx.beginPath(); ctx.moveTo(cx-s*0.55+f*s*0.04,cy-s*0.18+armSwing);
-    ctx.lineTo(cx-s*0.55+f*s*0.06,cy-s*0.3+armSwing); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx+s*0.55+f*s*0.04,cy-s*0.18-armSwing);
-    ctx.lineTo(cx+s*0.55+f*s*0.06,cy-s*0.3-armSwing); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-s*0.55+armSwing+f*s*0.04,cy-s*0.18);
+    ctx.lineTo(cx-s*0.55+armSwing+f*s*0.06,cy-s*0.3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+s*0.55-armSwing+f*s*0.04,cy-s*0.18);
+    ctx.lineTo(cx+s*0.55-armSwing+f*s*0.06,cy-s*0.3); ctx.stroke();
   }
 
   // Head (slightly elongated)
@@ -1459,7 +1483,7 @@ function drawMenu() {
   ctx.fillText('Defend humanity. Place your fighters. Survive.',canvas.width/2,250);
 
   ctx.font='16px Arial'; ctx.fillStyle='#ffd700';
-  ctx.fillText('\u{1F3C6} Endless Record: '+endlessRecord+' kills',canvas.width/2,285);
+  ctx.fillText('Endless Record: '+endlessRecord+' kills',canvas.width/2,285);
 
   let selText='No level selected';
   if(selectedLevel==='endless') selText='You have selected ENDLESS';
@@ -1476,8 +1500,12 @@ function drawMenu() {
   btn(startX,by,bw,bh,'PLAY','#e63946','#fff',28);
   btn(startX+bw+gap,by,bw,bh,'LEVELS','#457b9d','#fff',28);
 
+  // Directions and Thanks To buttons
+  btn(canvas.width/2-240,460,220,50,'DIRECTIONS','#2a6b4f','#fff',20);
+  btn(canvas.width/2+20,460,220,50,'THANKS TO...','#4a2a6b','#fff',20);
+
   const saveBg=saveFlash>0?'#52b788':'#2d6a4f';
-  const saveLabel=saveFlash>0?'\u2713 Saved!':'\u{1F4BE} Save';
+  const saveLabel=saveFlash>0?'Saved!':'Save';
   btn(20,20,120,40,saveLabel,saveBg,'#fff',16);
 }
 
@@ -1516,7 +1544,7 @@ function drawLevels() {
   // Boss button
   const bossX=endlessX+bw*2+padX+padX, bossY=endlessY;
   const isBossSel=(selectedLevel===42);
-  btn(bossX,bossY,bw*2+padX,bh,'\u{1F480} BOSS',isBossSel?'#7b0000':'#4a0000','#ff4444',20);
+  btn(bossX,bossY,bw*2+padX,bh,'BOSS',isBossSel?'#7b0000':'#4a0000','#ff4444',20);
   if(isBossSel){ ctx.strokeStyle='#ff4444'; ctx.lineWidth=3; ctx.beginPath(); ctx.roundRect(bossX,bossY,bw*2+padX,bh,10); ctx.stroke(); }
 
   btn(canvas.width-170,15,150,45,'\u2190 Menu','#555','#fff',18);
@@ -1622,6 +1650,76 @@ function drawCountdown(ts) {
   if(phase>=4){ countdownPhase=2; }
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  DRAW DIRECTIONS
+// ═══════════════════════════════════════════════════════════════════
+function drawDirections() {
+  ctx.fillStyle='#0d0d0d'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.font='bold 40px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#fff'; ctx.fillText('DIRECTIONS',canvas.width/2,60);
+
+  ctx.font='20px Arial'; ctx.fillStyle='#ccc'; ctx.textAlign='center';
+  const lines=[
+    'In order to play this game, you use your mouse to drag',
+    'the human desired to its square. Once ready to place,',
+    'let go of the mouse and it will drop.',
+    '',
+    'Make sure to not let any zombies reach your base',
+    'and protect it at all costs.',
+    '',
+    'Don\'t forget, in the top right corner, there are',
+    'superpowers you can use, but make sure you use them',
+    'wisely as there are limited amounts of superpowers',
+    'each level.',
+  ];
+  for(let i=0;i<lines.length;i++){
+    ctx.fillText(lines[i],canvas.width/2,140+i*35);
+  }
+  btn(canvas.width/2-100,canvas.height-70,200,50,'< Back','#555','#fff',20);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  DRAW CREDITS (scrolling)
+// ═══════════════════════════════════════════════════════════════════
+function drawCredits() {
+  ctx.fillStyle='#0a0a0a'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.font='bold 36px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#ffd700'; ctx.fillText('THANKS TO...',canvas.width/2,40);
+
+  const credits=[
+    'Thank you to my mom,',
+    'for giving me all the support I needed.',
+    '',
+    'Thank you to Plants VS Zombies',
+    'for giving me this idea.',
+    '',
+    'Thank you to my little brother',
+    'for testing these games with me in the making.',
+    '',
+    'And a big thanks to my dad',
+    'for teaching me all the codes and giving',
+    'me directions as a beginner.',
+  ];
+
+  ctx.font='22px Arial'; ctx.fillStyle='#ddd';
+  const lineH=45;
+  const totalH=credits.length*lineH;
+  const gap=totalH+canvas.height*0.4;
+  creditsY+=0.8;
+  // Draw multiple copies, positioned by gap intervals
+  // Figure out which copy index is currently near the screen
+  const firstCopy=Math.floor((creditsY-canvas.height)/gap);
+  for(let copy=firstCopy;copy<=firstCopy+2;copy++){
+    if(copy<0) continue;
+    for(let i=0;i<credits.length;i++){
+      const y=canvas.height+copy*gap-creditsY+i*lineH;
+      if(y>-30&&y<canvas.height+30) ctx.fillText(credits[i],canvas.width/2,y);
+    }
+  }
+
+  btn(canvas.width/2-100,canvas.height-60,200,45,'< Back','#555','#fff',18);
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  DRAW GAME SCENE
@@ -1757,10 +1855,10 @@ function update(ts) {
   for(const bs of bloodStains){ bs.timer-=dt; bs.alpha=Math.max(0,bs.timer/2000*0.7); }
   bloodStains=bloodStains.filter(bs=>bs.timer>0);
 
-  // ── Spawn zombies (normal/endless) ──
+  // ── Spawn zombies (normal/endless, max 30 on screen) ──
   if(!isBossLevel){
     const canSpawnMore=endlessMode||waveSpawned<zombiesThisWave;
-    if(canSpawnMore&&ts-lastSpawnTime>=spawnInterval){
+    if(canSpawnMore&&zombies.length<30&&ts-lastSpawnTime>=spawnInterval){
       const row=Math.floor(Math.random()*ROWS);
       zombies.push(spawnZombie(row,randomZombieType(selectedLevel)));
       waveSpawned++; lastSpawnTime=ts;
@@ -1768,10 +1866,10 @@ function update(ts) {
     }
   }
 
-  // ── Boss level: zombie base spawns ──
+  // ── Boss level: zombie base spawns (max 15 on screen) ──
   if(isBossLevel&&countdownPhase===2&&zombieBase&&zombieBase.alive){
     if(zombieBase.invulnTimer>0) zombieBase.invulnTimer-=dt;
-    if(ts-zombieBase.lastSpawn>=zombieBase.spawnRate){
+    if(zombies.length<15&&ts-zombieBase.lastSpawn>=zombieBase.spawnRate){
       const row=Math.floor(Math.random()*ROWS);
       zombies.push(spawnZombie(row,randomZombieType(42)));
       zombieBase.lastSpawn=ts;
@@ -1985,6 +2083,18 @@ canvas.addEventListener('mousedown',e=>{
       if(selectedLevel) startLevel(); else alert('Please select a level first!');
     }
     if(inRect(mx,my,startX+bw+gap,by,bw,bh)) scene='levels';
+    // Directions button
+    if(inRect(mx,my,canvas.width/2-240,460,220,50)){ scene='directions'; return; }
+    // Thanks To button
+    if(inRect(mx,my,canvas.width/2+20,460,220,50)){ scene='credits'; creditsY=0; return; }
+  }
+
+  else if(scene==='directions'){
+    if(inRect(mx,my,canvas.width/2-100,canvas.height-70,200,50)){ scene='menu'; return; }
+  }
+
+  else if(scene==='credits'){
+    if(inRect(mx,my,canvas.width/2-100,canvas.height-60,200,45)){ scene='menu'; return; }
   }
 
   else if(scene==='levels'){
@@ -2121,6 +2231,8 @@ function loop(ts){
   lastTime=ts;
   if(scene==='menu')        drawMenu();
   else if(scene==='levels') drawLevels();
+  else if(scene==='directions') drawDirections();
+  else if(scene==='credits') drawCredits();
   else if(scene==='game')   drawGame(ts);
   requestAnimationFrame(loop);
 }
