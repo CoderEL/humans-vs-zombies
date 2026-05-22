@@ -57,6 +57,12 @@ function loadGame() {
 let scene         = 'menu';
 let selectedLevel = null;
 let creditsY      = 0; // for scrolling credits
+let isOneLife     = false;
+let oneLifeWave   = 1;
+let oneLifeWaveZombies = 0;
+let oneLifeWaveSpawned = 0;
+let oneLifePaused = false;
+let oneLifePauseTimer = 0;
 let money         = 500;
 let lives         = 3;
 let gameOver      = false;
@@ -106,7 +112,7 @@ const GRID_Y = 120;
 //  THEME PER LEVEL
 // ═══════════════════════════════════════════════════════════════════
 function getTheme(lvl) {
-  if (lvl === 'endless' || lvl > 40) return getTheme(40);
+  if (lvl === 'endless' || lvl === 'onelife' || lvl > 40) return getTheme(10);
   if (lvl === 42) return { terrain:'interstellar', base:'earth', lives:15, startMoney:1000 };
   if (lvl <= 10)  return { terrain:'grass',    base:'hospital',  lives:3,  startMoney:500  };
   if (lvl <= 20)  return { terrain:'rocky',    base:'colosseum', lives:5,  startMoney:500  };
@@ -123,7 +129,7 @@ const UNIT_DEFS = {
   sword:     { name:'Swordsman',     cost:125, hp:100, dmg:25, rate:900,  range:2,   ranged:false, color:'#caffbf' },
   pistol:    { name:'Pistol',        cost:150, hp:100, dmg:30, rate:700,  range:999, ranged:true,  color:'#fdffb6' },
   rifle:     { name:'Rifle',         cost:200, hp:125, dmg:30, rate:400,  range:999, ranged:true,  color:'#ffadad' },
-  machinegun:{ name:'Machine Gun',   cost:250, hp:150, dmg:15, rate:200,  range:999, ranged:true,  color:'#bdb2ff' },
+  machinegun:{ name:'Machine Gun',   cost:250, hp:150, dmg:15, rate:333,  range:999, ranged:true,  color:'#bdb2ff' },
   banker:    { name:'Banker',        cost:100, hp:150, dmg:0,  rate:5000, range:0,   ranged:false, color:'#ffd700' },
   shielder:  { name:'Shielder',      cost:80,  hp:350, dmg:0,  rate:0,    range:1,   ranged:false, color:'#90e0ef' },
 };
@@ -269,7 +275,7 @@ function spawnZombie(row, type) {
 }
 
 function waveSizeForLevel(lvl) {
-  if (lvl==='endless'||lvl===42) return Infinity;
+  if (lvl==='endless'||lvl===42||lvl==='onelife') return Infinity;
   return 5 + lvl*3;
 }
 
@@ -324,12 +330,14 @@ function startLevel() {
   endlessKills=0;
   endlessMode = (selectedLevel==='endless');
   isBossLevel = (selectedLevel===42);
+  isOneLife = (selectedLevel==='onelife');
+  oneLifeWave=1; oneLifeWaveZombies=8; oneLifeWaveSpawned=0; oneLifePaused=false; oneLifePauseTimer=0;
 
   const lvlNum = (selectedLevel==='endless') ? 1 : selectedLevel;
   const theme = getTheme(lvlNum);
-  lives = endlessMode ? 3 : theme.lives;
+  lives = isOneLife ? 1 : endlessMode ? 3 : theme.lives;
 
-  if (endlessMode) {
+  if (endlessMode||isOneLife) {
     money = 1000;
   } else {
     const lvl = selectedLevel;
@@ -340,8 +348,8 @@ function startLevel() {
   waveSpawned=0;
   zombiesThisWave = waveSizeForLevel(selectedLevel);
   allZombiesSpawned = false;
-  lastSpawnTime = performance.now() + 3500;
-  spawnInterval = endlessMode ? 1500 : isBossLevel ? 2000 : Math.max(800, 2500-(selectedLevel)*50);
+  lastSpawnTime = isBossLevel ? performance.now() + 3500 : performance.now();
+  spawnInterval = endlessMode ? 1500 : isBossLevel ? 2000 : isOneLife ? 1200 : Math.max(800, 2500-(selectedLevel)*50);
   fortGuard = createFortGuard();
   shakeTimer = 0; shakeX = 0; shakeY = 0;
   meteorUses = 2; laserUses = 2; nukeUses = 1;
@@ -351,7 +359,13 @@ function startLevel() {
   countdownPhase = 0; countdownStart = 0;
   if (isBossLevel) {
     countdownPhase = 1;
-    countdownStart = performance.now();
+    countdownStart = 0;
+  }
+  if (isOneLife) {
+    countdownPhase = 3; // 3 = onelife countdown
+    countdownStart = 0;
+  }
+  if (isBossLevel) {
     zombieBase = {
       hp: 3000, maxHp: 3000,
       x: canvas.width - 60,
@@ -1407,29 +1421,32 @@ function drawHUD() {
   ctx.fillStyle='#ffd700'; ctx.fillText(`💰 $${money}`,20,GRID_Y/2);
   // Hearts
   let heartsStr='';
-  for(let i=0;i<lives;i++) heartsStr+='\u2764\uFE0F';
+  for(let i=0;i<lives;i++) heartsStr+='*';
   ctx.fillStyle='#ff4444'; ctx.fillText(heartsStr,200,GRID_Y/2);
-  const lvlLabel=selectedLevel==='endless'?'ENDLESS':selectedLevel===42?'\uD83D\uDC80 BOSS':`Level ${selectedLevel}`;
+  const lvlLabel=selectedLevel==='endless'?'ENDLESS':selectedLevel===42?'BOSS':selectedLevel==='onelife'?'ONE LIFE':`Level ${selectedLevel}`;
   ctx.fillStyle='#aaa'; ctx.fillText(lvlLabel,200+lives*28,GRID_Y/2);
   if(endlessMode){
     ctx.fillStyle='#ffd700'; ctx.fillText(`Kills: ${endlessKills}`,520,GRID_Y/2);
+  } else if(isOneLife){
+    const remaining=oneLifeWaveZombies-oneLifeWaveSpawned+zombies.length;
+    ctx.fillStyle='#4caf50'; ctx.fillText(`Zombies: ${Math.max(0,remaining)} left`,520,GRID_Y/2);
   } else {
-    const remaining=zombies.filter(z=>!z.dead).length+(zombiesThisWave===Infinity?999:(zombiesThisWave-waveSpawned));
-    ctx.fillStyle='#4caf50'; ctx.fillText(`\uD83E\uDDDF ${Math.max(0,remaining)} left`,520,GRID_Y/2);
+    const remaining=zombies.length+(zombiesThisWave===Infinity?0:Math.max(0,zombiesThisWave-waveSpawned));
+    ctx.fillStyle='#4caf50'; ctx.fillText(`Zombies: ${Math.max(0,remaining)} left`,520,GRID_Y/2);
   }
-  btn(canvas.width-160,10,140,40,'\u2190 Menu','#555','#fff',16);
+  btn(canvas.width-160,10,140,40,'< Menu','#555','#fff',16);
   // Save button with flash
   const saveBg=saveFlash>0?'#52b788':'#2d6a4f';
-  const saveLabel=saveFlash>0?'\u2713 Saved!':'\uD83D\uDCBE Save';
+  const saveLabel=saveFlash>0?'Saved!':'Save';
   btn(20,canvas.height-55,120,40,saveLabel,saveBg,'#fff',16);
 
   // Superpower buttons
   const pwY=GRID_Y/2-18;
   const pwX=canvas.width-480;
   const pwW=90, pwH=36, pwGap=8;
-  btn(pwX,pwY,pwW,pwH,'\u2604\uFE0F '+meteorUses,meteorUses>0?'#ff8800':'#444','#fff',13);
-  btn(pwX+pwW+pwGap,pwY,pwW,pwH,'\u26A1 '+laserUses,laserUses>0?'#00ccff':'#444','#fff',13);
-  btn(pwX+2*(pwW+pwGap),pwY,pwW,pwH,'\u2622\uFE0F '+nukeUses,nukeUses>0?'#ff0044':'#444','#fff',13);
+  btn(pwX,pwY,pwW,pwH,'Meteor:'+meteorUses,meteorUses>0?'#ff8800':'#444','#fff',13);
+  btn(pwX+pwW+pwGap,pwY,pwW,pwH,'Laser:'+laserUses,laserUses>0?'#00ccff':'#444','#fff',13);
+  btn(pwX+2*(pwW+pwGap),pwY,pwW,pwH,'Nuke:'+nukeUses,nukeUses>0?'#ff0044':'#444','#fff',13);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1488,6 +1505,7 @@ function drawMenu() {
   let selText='No level selected';
   if(selectedLevel==='endless') selText='You have selected ENDLESS';
   else if(selectedLevel===42) selText='You have selected BOSS LEVEL';
+  else if(selectedLevel==='onelife') selText='You have selected ONE LIFE';
   else if(selectedLevel) selText='Selected: Level '+selectedLevel;
   ctx.font='18px Arial';
   ctx.fillStyle=selectedLevel?'#90ee90':'#888';
@@ -1500,9 +1518,10 @@ function drawMenu() {
   btn(startX,by,bw,bh,'PLAY','#e63946','#fff',28);
   btn(startX+bw+gap,by,bw,bh,'LEVELS','#457b9d','#fff',28);
 
-  // Directions and Thanks To buttons
-  btn(canvas.width/2-240,460,220,50,'DIRECTIONS','#2a6b4f','#fff',20);
-  btn(canvas.width/2+20,460,220,50,'THANKS TO...','#4a2a6b','#fff',20);
+  // Directions, Dedications, Extra Levels buttons
+  btn(canvas.width/2-350,460,210,50,'DIRECTIONS','#2a6b4f','#fff',18);
+  btn(canvas.width/2-110,460,220,50,'DEDICATIONS','#4a2a6b','#fff',18);
+  btn(canvas.width/2+140,460,210,50,'EXTRA LEVELS','#6b4a2a','#fff',18);
 
   const saveBg=saveFlash>0?'#52b788':'#2d6a4f';
   const saveLabel=saveFlash>0?'Saved!':'Save';
@@ -1538,7 +1557,7 @@ function drawLevels() {
   // Endless button
   const endlessX=startX, endlessY=startY+5*(bh+padY);
   const isSel=(selectedLevel==='endless');
-  btn(endlessX,endlessY,bw*2+padX,bh,'\u267E ENDLESS',isSel?'#2d6a4f':'#6b2737','#fff',20);
+  btn(endlessX,endlessY,bw*2+padX,bh,'ENDLESS',isSel?'#2d6a4f':'#6b2737','#fff',20);
   if(isSel){ ctx.strokeStyle='#52b788'; ctx.lineWidth=3; ctx.beginPath(); ctx.roundRect(endlessX,endlessY,bw*2+padX,bh,10); ctx.stroke(); }
 
   // Boss button
@@ -1547,7 +1566,7 @@ function drawLevels() {
   btn(bossX,bossY,bw*2+padX,bh,'BOSS',isBossSel?'#7b0000':'#4a0000','#ff4444',20);
   if(isBossSel){ ctx.strokeStyle='#ff4444'; ctx.lineWidth=3; ctx.beginPath(); ctx.roundRect(bossX,bossY,bw*2+padX,bh,10); ctx.stroke(); }
 
-  btn(canvas.width-170,15,150,45,'\u2190 Menu','#555','#fff',18);
+  btn(canvas.width-170,15,150,45,'< Menu','#555','#fff',18);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1629,25 +1648,20 @@ function drawGameOverScreen() {
 //  COUNTDOWN OVERLAY
 // ═══════════════════════════════════════════════════════════════════
 function drawCountdown(ts) {
-  const elapsed = ts - countdownStart;
+  const elapsed = countdownStart; // countdownStart now accumulates elapsed ms
   const phase = Math.floor(elapsed/1000);
   const labels = ['3','2','1','GO!'];
   const idx = Math.min(phase, 3);
-  const progress = (elapsed%1000)/1000;
-  const scale = 1 + (1-progress)*0.5;
 
-  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.save();
-  ctx.translate(canvas.width/2, canvas.height/2);
-  ctx.scale(scale, scale);
+  ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.font='bold 120px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.shadowColor=idx===3?'#00ff88':'#ff0000';
+  ctx.shadowBlur=40;
   ctx.fillStyle=idx===3?'#52b788':'#ff4444';
-  ctx.shadowColor=idx===3?'#00ff88':'#ff0000'; ctx.shadowBlur=30;
-  ctx.fillText(labels[idx],0,0);
+  ctx.fillText(labels[idx],canvas.width/2,canvas.height/2);
   ctx.shadowBlur=0;
   ctx.restore();
-
-  if(phase>=4){ countdownPhase=2; }
 }
 
 
@@ -1688,13 +1702,13 @@ function drawCredits() {
   ctx.fillStyle='#ffd700'; ctx.fillText('THANKS TO...',canvas.width/2,40);
 
   const credits=[
-    'Thank you to my mom,',
+    'Thanks to my mom,',
     'for giving me all the support I needed.',
     '',
-    'Thank you to Plants VS Zombies',
+    'Thanks to Plants VS Zombies',
     'for giving me this idea.',
     '',
-    'Thank you to my little brother',
+    'Thanks to my little brother',
     'for testing these games with me in the making.',
     '',
     'And a big thanks to my dad',
@@ -1722,9 +1736,30 @@ function drawCredits() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  DRAW EXTRA LEVELS
+// ═══════════════════════════════════════════════════════════════════
+function drawExtra() {
+  ctx.fillStyle='#0d0d0d'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.font='bold 40px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#fff'; ctx.fillText('EXTRA LEVELS',canvas.width/2,60);
+
+  btn(canvas.width/2-300,200,180,70,'ENDLESS',selectedLevel==='endless'?'#2d6a4f':'#6b2737','#fff',22);
+  btn(canvas.width/2-60,200,180,70,'BOSS',selectedLevel===42?'#7b0000':'#4a0000','#ff4444',22);
+  btn(canvas.width/2+180,200,180,70,'ONE LIFE',selectedLevel==='onelife'?'#2d6a4f':'#2a4a6b','#fff',22);
+
+  ctx.font='14px Arial'; ctx.fillStyle='#888';
+  ctx.fillText('Endless: Survive as long as you can',canvas.width/2-210,290);
+  ctx.fillText('Boss: Destroy the alien base',canvas.width/2+0,290);
+  ctx.fillText('One Life: 75 waves, 1 life',canvas.width/2+270,290);
+
+  btn(canvas.width/2-100,canvas.height-70,200,50,'< Back','#555','#fff',20);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  DRAW GAME SCENE
 // ═══════════════════════════════════════════════════════════════════
 function drawGame(ts) {
+  try{
   ctx.save();
   // Screen shake
   if(shakeTimer>0){
@@ -1793,8 +1828,38 @@ function drawGame(ts) {
     ctx.globalAlpha=1;
   }
 
-  // Countdown overlay (boss level)
+  // Countdown overlay (boss level only)
   if(isBossLevel&&countdownPhase===1) drawCountdown(ts);
+
+  // OneLife fast countdown
+  if(isOneLife&&countdownPhase===3){
+    const phase=Math.floor(countdownStart/500);
+    const labels=['3','2','1','GO!'];
+    const idx=Math.min(phase,3);
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.font='bold 120px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor=idx===3?'#00ff88':'#ff0000';
+    ctx.shadowBlur=40;
+    ctx.fillStyle=idx===3?'#52b788':'#ff4444';
+    ctx.fillText(labels[idx],canvas.width/2,canvas.height/2);
+    ctx.shadowBlur=0;
+    ctx.restore();
+  }
+
+  // One Life wave pause overlay
+  if(isOneLife&&oneLifePaused){
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.font='bold 60px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#fff'; ctx.fillText('WAVE '+oneLifeWave+' COMPLETE',canvas.width/2,canvas.height/2-20);
+    ctx.font='30px Arial'; ctx.fillStyle='#ffd700';
+    ctx.fillText('Wave '+(oneLifeWave+1)+' incoming...',canvas.width/2,canvas.height/2+40);
+  }
+  // One Life HUD
+  if(isOneLife){
+    ctx.font='bold 16px Arial'; ctx.textAlign='center'; ctx.fillStyle='#fff';
+    ctx.fillText('Wave '+oneLifeWave+' / 75',canvas.width/2,GY-15);
+  }
 
   // Game over / win
   if(gameOver) drawGameOverScreen();
@@ -1807,6 +1872,7 @@ function drawGame(ts) {
     ctx.fillText('All zombies defeated!',canvas.width/2,canvas.height/2+40);
     btn(canvas.width/2-110,canvas.height/2+100,220,55,'Back to Menu','#457b9d','#fff',22);
   }
+  }catch(e){console.error('drawGame error:',e);}
 }
 
 
@@ -1828,12 +1894,22 @@ function update(ts) {
 
   // Boss countdown — pause game during countdown
   if(isBossLevel&&countdownPhase===1){
-    const elapsed = ts - countdownStart;
-    if(elapsed >= 4000) {
+    countdownStart+=16;
+    if(countdownStart >= 4000) {
       countdownPhase = 2;
       if(zombieBase) zombieBase.lastSpawn = ts;
+      lastSpawnTime=ts;
     }
-    lastTime=ts;
+    return;
+  }
+
+  // OneLife fast countdown (500ms per number)
+  if(isOneLife&&countdownPhase===3){
+    countdownStart+=16;
+    if(countdownStart >= 2000) {
+      countdownPhase = 2;
+      lastSpawnTime=ts;
+    }
     return;
   }
 
@@ -1856,7 +1932,7 @@ function update(ts) {
   bloodStains=bloodStains.filter(bs=>bs.timer>0);
 
   // ── Spawn zombies (normal/endless, max 30 on screen) ──
-  if(!isBossLevel){
+  if(!isBossLevel&&!isOneLife){
     const canSpawnMore=endlessMode||waveSpawned<zombiesThisWave;
     if(canSpawnMore&&zombies.length<30&&ts-lastSpawnTime>=spawnInterval){
       const row=Math.floor(Math.random()*ROWS);
@@ -1864,6 +1940,27 @@ function update(ts) {
       waveSpawned++; lastSpawnTime=ts;
       if(!endlessMode&&waveSpawned>=zombiesThisWave) allZombiesSpawned=true;
     }
+  }
+
+  // ── One Life mode wave logic ──
+  if(isOneLife&&countdownPhase===2&&!oneLifePaused){
+    if(oneLifeWaveSpawned<oneLifeWaveZombies&&zombies.length<30&&ts-lastSpawnTime>=spawnInterval){
+      const row=Math.floor(Math.random()*ROWS);
+      zombies.push(spawnZombie(row,randomZombieType(oneLifeWave)));
+      oneLifeWaveSpawned++; lastSpawnTime=ts;
+    }
+    // Wave complete — all spawned and all dead
+    if(oneLifeWaveSpawned>=oneLifeWaveZombies&&zombies.length===0){
+      if(oneLifeWave>=75){gameWon=true;}
+      else{oneLifePaused=true;oneLifePauseTimer=ts;}
+    }
+  }
+  if(isOneLife&&oneLifePaused&&ts-oneLifePauseTimer>=2000){
+    // Start next wave
+    oneLifeWave++;
+    oneLifeWaveZombies=8+oneLifeWave*5;
+    oneLifeWaveSpawned=0;
+    oneLifePaused=false;
   }
 
   // ── Boss level: zombie base spawns (max 15 on screen) ──
@@ -1888,7 +1985,14 @@ function update(ts) {
         if(ts-z.lastAttack>=z.attackRate){
           u.hp-=z.dmg; z.lastAttack=ts;
           addParticle(ux,GRID_Y+z.row*CELL_H+CELL_H/2,'#ff4444');
-          if(u.hp<=0) grid[z.row][c]=null;
+          if(u.hp<=0){
+            grid[z.row][c]=null;
+            // 3% chance human turns into zombie (not shielder or banker)
+            if(u.key!=='shielder'&&u.key!=='banker'&&Math.random()<0.03){
+              zombies.push(spawnZombie(z.row,'normal'));
+              zombies[zombies.length-1].x=ux;
+            }
+          }
         }
         break;
       }
@@ -2011,7 +2115,13 @@ function update(ts) {
     } else {
       // Normal zombie target (direct reference)
       const target=b.targetRef;
-      if(!target||target.dead){b.done=true;continue;}
+      if(!target){b.done=true;continue;}
+      if(target.dead){
+        // Keep bullet moving forward until off screen
+        if(!b.isFortBullet){b.y=GRID_Y+b.row*CELL_H+CELL_H/2;b.x+=b.speed*(dt/1000);if(b.x>canvas.width+20)b.done=true;}
+        else{b.done=true;}
+        continue;
+      }
       if(!b.isFortBullet){
         b.y=GRID_Y+b.row*CELL_H+CELL_H/2;
         const dx=target.x-b.x;
@@ -2052,8 +2162,8 @@ function update(ts) {
     zombies=zombies.filter(z=>z.x>-100);
   }
 
-  // ── Win condition (non-boss, non-endless) ──
-  if(!endlessMode&&!isBossLevel&&allZombiesSpawned&&zombies.length===0) gameWon=true;
+  // ── Win condition (non-boss, non-endless, non-onelife) ──
+  if(!endlessMode&&!isBossLevel&&!isOneLife&&allZombiesSpawned&&zombies.length===0) gameWon=true;
   // Boss level: only win when huge zombie is dead (and it exists)
   if(isBossLevel&&hugeZombie&&hugeZombie.dead&&hugeZombie.hp<=0) gameWon=true;
 }
@@ -2084,9 +2194,11 @@ canvas.addEventListener('mousedown',e=>{
     }
     if(inRect(mx,my,startX+bw+gap,by,bw,bh)) scene='levels';
     // Directions button
-    if(inRect(mx,my,canvas.width/2-240,460,220,50)){ scene='directions'; return; }
-    // Thanks To button
-    if(inRect(mx,my,canvas.width/2+20,460,220,50)){ scene='credits'; creditsY=0; return; }
+    if(inRect(mx,my,canvas.width/2-350,460,210,50)){ scene='directions'; return; }
+    // Dedications button
+    if(inRect(mx,my,canvas.width/2-110,460,220,50)){ scene='credits'; creditsY=0; return; }
+    // Extra Levels button
+    if(inRect(mx,my,canvas.width/2+140,460,210,50)){ scene='extra'; return; }
   }
 
   else if(scene==='directions'){
@@ -2095,6 +2207,13 @@ canvas.addEventListener('mousedown',e=>{
 
   else if(scene==='credits'){
     if(inRect(mx,my,canvas.width/2-100,canvas.height-60,200,45)){ scene='menu'; return; }
+  }
+
+  else if(scene==='extra'){
+    if(inRect(mx,my,canvas.width/2-100,canvas.height-70,200,50)){ scene='menu'; return; }
+    if(inRect(mx,my,canvas.width/2-300,200,180,70)){ selectedLevel='endless'; scene='menu'; return; }
+    if(inRect(mx,my,canvas.width/2-60,200,180,70)){ selectedLevel=42; scene='menu'; return; }
+    if(inRect(mx,my,canvas.width/2+180,200,180,70)){ selectedLevel='onelife'; scene='menu'; return; }
   }
 
   else if(scene==='levels'){
@@ -2116,7 +2235,7 @@ canvas.addEventListener('mousedown',e=>{
   }
 
   else if(scene==='game'){
-    if(inRect(mx,my,canvas.width-160,10,140,40)){ scene='menu'; return; }
+    if(inRect(mx,my,canvas.width-160,10,140,40)){ if(endlessMode&&endlessKills>endlessRecord){endlessRecord=endlessKills;saveGame();} scene='menu'; return; }
     if(inRect(mx,my,20,canvas.height-55,120,40)){ saveGame(); return; }
 
     if(gameOver){
@@ -2233,6 +2352,7 @@ function loop(ts){
   else if(scene==='levels') drawLevels();
   else if(scene==='directions') drawDirections();
   else if(scene==='credits') drawCredits();
+  else if(scene==='extra') drawExtra();
   else if(scene==='game')   drawGame(ts);
   requestAnimationFrame(loop);
 }
